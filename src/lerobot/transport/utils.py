@@ -33,14 +33,14 @@ CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB
 MAX_MESSAGE_SIZE = 4 * 1024 * 1024  # 4 MB
 
 
-def bytes_buffer_size(buffer: io.BytesIO) -> int:
+def bytes_buffer_size(buffer: bytes) -> int:
     buffer.seek(0, io.SEEK_END)
     result = buffer.tell()
     buffer.seek(0)
     return result
 
 
-def send_bytes_in_chunks(buffer: io.BytesIO, message_class: Any, log_prefix: str = "", silent: bool = True):
+def send_bytes_in_chunks(buffer: bytes, message_class: Any, log_prefix: str = "", silent: bool = True):
     buffer = io.BytesIO(buffer)
     size_in_bytes = bytes_buffer_size(buffer)
 
@@ -117,7 +117,7 @@ def state_to_bytes(state_dict: dict[str, torch.Tensor]) -> io.BytesIO:
     return buffer.getvalue()
 
 
-def bytes_to_state_dict(buffer: io.BytesIO) -> dict[str, torch.Tensor]:
+def bytes_to_state_dict(buffer: bytes) -> dict[str, torch.Tensor]:
     buffer = io.BytesIO(buffer)
     buffer.seek(0)
     return torch.load(buffer, weights_only=True)
@@ -127,7 +127,7 @@ def python_object_to_bytes(python_object: Any) -> io.BytesIO:
     return pickle.dumps(python_object)
 
 
-def bytes_to_python_object(buffer: io.BytesIO) -> Any:
+def bytes_to_python_object(buffer: bytes) -> Any:
     buffer = io.BytesIO(buffer)
     buffer.seek(0)
     obj = pickle.load(buffer)  # nosec B301: Safe usage of pickle.load
@@ -135,7 +135,7 @@ def bytes_to_python_object(buffer: io.BytesIO) -> Any:
     return obj
 
 
-def bytes_to_transitions(buffer: io.BytesIO) -> list[Transition]:
+def bytes_to_transitions(buffer: bytes) -> list[Transition]:
     buffer = io.BytesIO(buffer)
     buffer.seek(0)
     transitions = torch.load(buffer, weights_only=True)
