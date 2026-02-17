@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import importlib
+import importlib.util as importlib_util
 import importlib.metadata
 import logging
 from typing import Any
@@ -37,7 +38,7 @@ def is_package_available(
         import_name = pkg_name
 
     # Check if the module spec exists using the import name
-    package_exists = importlib.util.find_spec(import_name) is not None
+    package_exists = importlib_util.find_spec(import_name) is not None
     package_version = "N/A"
     if package_exists:
         try:
@@ -114,7 +115,8 @@ def make_device_from_device_class(config: ChoiceRegistry) -> Any:
 
     # de-duplicate while preserving order
     seen: set[str] = set()
-    candidates = [c for c in candidates if not (c in seen or seen.add(c))]
+    candidates = [c for c in candidates if c not in seen]
+    seen.update(candidates)
 
     tried: list[str] = []
     for candidate in candidates:
@@ -149,7 +151,12 @@ def register_third_party_plugins() -> None:
     (including editable installs) starting with 'lerobot_robot_', 'lerobot_camera_',
     'lerobot_teleoperator_', or 'lerobot_policy_' and imports them.
     """
-    prefixes = ("lerobot_robot_", "lerobot_camera_", "lerobot_teleoperator_", "lerobot_policy_")
+    prefixes = (
+        "lerobot_robot_",
+        "lerobot_camera_",
+        "lerobot_teleoperator_",
+        "lerobot_policy_",
+    )
     imported: list[str] = []
     failed: list[str] = []
 
@@ -163,7 +170,7 @@ def register_third_party_plugins() -> None:
             failed.append(module_name)
 
     for dist in importlib.metadata.distributions():
-        dist_name = dist.metadata.get("Name")
+        dist_name = dist.metadata.get("Name", None)
         if not dist_name:
             continue
         if dist_name.startswith(prefixes):
