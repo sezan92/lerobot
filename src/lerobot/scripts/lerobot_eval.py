@@ -15,6 +15,9 @@
 # limitations under the License.
 """Evaluate a policy on an environment by running rollouts and computing metrics.
 
+Requires: pip install 'lerobot[evaluation]' plus the policy extra (e.g. lerobot[pi])
+          and the environment extra (e.g. lerobot[pusht]) if evaluating in simulation.
+
 Usage examples:
 
 You want to evaluate a model from the hub (eg: https://huggingface.co/lerobot/diffusion_pusht)
@@ -71,21 +74,22 @@ from tqdm import trange
 
 from lerobot.configs import parser
 from lerobot.configs.eval import EvalPipelineConfig
-from lerobot.envs.factory import make_env
-from lerobot.envs.utils import (
-    add_envs_task,
+from lerobot.envs import (
     check_env_attributes_and_types,
     close_envs,
+    make_env,
+    make_env_pre_post_processors,
     preprocess_observation,
 )
-from lerobot.policies.factory import make_policy, make_pre_post_processors
-from lerobot.policies.pretrained import PreTrainedPolicy
-from lerobot.processor import PolicyAction, PolicyProcessorPipeline
+from lerobot.policies import PreTrainedPolicy, make_policy, make_pre_post_processors
+from lerobot.processor import PolicyProcessorPipeline
+from lerobot.types import PolicyAction
 from lerobot.utils.constants import ACTION, DONE, OBS_STR, REWARD
+from lerobot.utils.device_utils import get_safe_torch_device
+from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.io_utils import write_video
 from lerobot.utils.random_utils import set_seed
 from lerobot.utils.utils import (
-    get_safe_torch_device,
     init_logging,
     inside_slurm,
 )
@@ -94,6 +98,8 @@ from lerobot.utils.utils import (
 def rollout(
     env: gym.vector.VectorEnv,
     policy: PreTrainedPolicy,
+    env_preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
+    env_postprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
     seeds: list[int] | None = None,
@@ -162,13 +168,27 @@ def rollout(
         if return_observations:
             all_observations.append(deepcopy(observation))
 
-        # Infer "task" from attributes of environments.
-        # TODO: works with SyncVectorEnv but not AsyncVectorEnv
-        observation = add_envs_task(env, observation)
+        # Infer "task" from sub-environments (prefer natural language description).
+        # env.call() works with both SyncVectorEnv and AsyncVectorEnv.
+        try:
+            observation["task"] = list(env.call("task_description"))
+        except (AttributeError, NotImplementedError):
+            try:
+                observation["task"] = list(env.call("task"))
+            except (AttributeError, NotImplementedError):
+                observation["task"] = [""] * env.num_envs
+
+        # Apply environment-specific preprocessing (e.g., LiberoProcessorStep for LIBERO)
+        observation = env_preprocessor(observation)
+
         observation = preprocessor(observation)
         with torch.inference_mode():
             action = policy.select_action(observation)
         action = postprocessor(action)
+
+        action_transition = {ACTION: action}
+        action_transition = env_postprocessor(action_transition)
+        action = action_transition[ACTION]
 
         # Convert to CPU / numpy.
         action_numpy: np.ndarray = action.to("cpu").numpy()
@@ -189,6 +209,11 @@ def rollout(
                     "You're likely using an older version of gymnasium (< 1.0). Please upgrade."
                 )
             successes = final_info["is_success"].tolist()
+        elif "is_success" in info:
+            is_success = info["is_success"]
+            successes = (
+                is_success.tolist() if hasattr(is_success, "tolist") else [bool(is_success)] * env.num_envs
+            )
         else:
             successes = [False] * env.num_envs
 
@@ -239,6 +264,8 @@ def rollout(
 def eval_policy(
     env: gym.vector.VectorEnv,
     policy: PreTrainedPolicy,
+    env_preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
+    env_postprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
     n_episodes: int,
@@ -265,9 +292,16 @@ def eval_policy(
         raise ValueError("If max_episodes_rendered > 0, videos_dir must be provided.")
 
     if not isinstance(policy, PreTrainedPolicy):
-        raise ValueError(
+        exc = ValueError(
             f"Policy of type 'PreTrainedPolicy' is expected, but type '{type(policy)}' was provided."
         )
+        try:
+            from peft import PeftModel
+
+            if not isinstance(policy, PeftModel):
+                raise exc
+        except ImportError:
+            raise exc from None
 
     start = time.time()
     policy.eval()
@@ -292,8 +326,9 @@ def eval_policy(
         n_to_render_now = min(max_episodes_rendered - n_episodes_rendered, env.num_envs)
         if isinstance(env, gym.vector.SyncVectorEnv):
             ep_frames.append(np.stack([env.envs[i].render() for i in range(n_to_render_now)]))  # noqa: B023
-        elif isinstance(env, gym.vector.AsyncVectorEnv):
+        elif hasattr(env, "call"):
             # Here we must render all frames and discard any we don't need.
+            # Covers AsyncVectorEnv and _LazyAsyncVectorEnv (which wraps one).
             ep_frames.append(np.stack(env.call("render")[:n_to_render_now]))
 
     if max_episodes_rendered > 0:
@@ -319,6 +354,8 @@ def eval_policy(
         rollout_data = rollout(
             env=env,
             policy=policy,
+            env_preprocessor=env_preprocessor,
+            env_postprocessor=env_postprocessor,
             preprocessor=preprocessor,
             postprocessor=postprocessor,
             seeds=list(seeds) if seeds else None,
@@ -493,8 +530,13 @@ def eval_main(cfg: EvalPipelineConfig):
 
     logging.info(colored("Output dir:", "yellow", attrs=["bold"]) + f" {cfg.output_dir}")
 
-    logging.info("Making environment.")
-    envs = make_env(cfg.env, n_envs=cfg.eval.batch_size, use_async_envs=cfg.eval.use_async_envs)
+    logging.info(f"Making environment (batch_size={cfg.eval.batch_size}, async={cfg.eval.use_async_envs}).")
+    envs = make_env(
+        cfg.env,
+        n_envs=cfg.eval.batch_size,
+        use_async_envs=cfg.eval.use_async_envs,
+        trust_remote_code=cfg.trust_remote_code,
+    )
 
     logging.info("Making policy.")
 
@@ -517,10 +559,16 @@ def eval_main(cfg: EvalPipelineConfig):
         pretrained_path=cfg.policy.pretrained_path,
         preprocessor_overrides=preprocessor_overrides,
     )
+
+    # Create environment-specific preprocessor and postprocessor (e.g., for LIBERO environments)
+    env_preprocessor, env_postprocessor = make_env_pre_post_processors(env_cfg=cfg.env, policy_cfg=cfg.policy)
+
     with torch.no_grad(), torch.autocast(device_type=device.type) if cfg.policy.use_amp else nullcontext():
         info = eval_policy_all(
             envs=envs,
             policy=policy,
+            env_preprocessor=env_preprocessor,
+            env_postprocessor=env_postprocessor,
             preprocessor=preprocessor,
             postprocessor=postprocessor,
             n_episodes=cfg.eval.n_episodes,
@@ -561,6 +609,8 @@ def eval_one(
     env: gym.vector.VectorEnv,
     *,
     policy: PreTrainedPolicy,
+    env_preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
+    env_postprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
     n_episodes: int,
@@ -576,6 +626,8 @@ def eval_one(
     task_result = eval_policy(
         env=env,
         policy=policy,
+        env_preprocessor=env_preprocessor,
+        env_postprocessor=env_postprocessor,
         preprocessor=preprocessor,
         postprocessor=postprocessor,
         n_episodes=n_episodes,
@@ -600,6 +652,8 @@ def run_one(
     env,
     *,
     policy,
+    env_preprocessor,
+    env_postprocessor,
     preprocessor,
     postprocessor,
     n_episodes: int,
@@ -622,6 +676,8 @@ def run_one(
     metrics = eval_one(
         env,
         policy=policy,
+        env_preprocessor=env_preprocessor,
+        env_postprocessor=env_postprocessor,
         preprocessor=preprocessor,
         postprocessor=postprocessor,
         n_episodes=n_episodes,
@@ -639,6 +695,8 @@ def run_one(
 def eval_policy_all(
     envs: dict[str, dict[int, gym.vector.VectorEnv]],
     policy,
+    env_preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
+    env_postprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
     n_episodes: int,
@@ -694,6 +752,8 @@ def eval_policy_all(
     task_runner = partial(
         run_one,
         policy=policy,
+        env_preprocessor=env_preprocessor,
+        env_postprocessor=env_postprocessor,
         preprocessor=preprocessor,
         postprocessor=postprocessor,
         n_episodes=n_episodes,
@@ -704,23 +764,39 @@ def eval_policy_all(
     )
 
     if max_parallel_tasks <= 1:
-        # sequential path (single accumulator path on the main thread)
-        # NOTE: keeping a single-threaded accumulator avoids concurrent list appends or locks
-        for task_group, task_id, env in tasks:
-            tg, tid, metrics = task_runner(task_group, task_id, env)
-            _accumulate_to(tg, metrics)
-            per_task_infos.append({"task_group": tg, "task_id": tid, "metrics": metrics})
+        prefetch_thread: threading.Thread | None = None
+        for i, (task_group, task_id, env) in enumerate(tasks):
+            if prefetch_thread is not None:
+                prefetch_thread.join()
+                prefetch_thread = None
+
+            try:
+                tg, tid, metrics = task_runner(task_group, task_id, env)
+                _accumulate_to(tg, metrics)
+                per_task_infos.append({"task_group": tg, "task_id": tid, "metrics": metrics})
+            finally:
+                env.close()
+                # Prefetch next task's workers *after* closing current env to prevent
+                # GPU memory overlap between consecutive tasks.
+                if i + 1 < len(tasks):
+                    next_env = tasks[i + 1][2]
+                    if hasattr(next_env, "_ensure"):
+                        prefetch_thread = threading.Thread(target=next_env._ensure, daemon=True)
+                        prefetch_thread.start()
     else:
-        # threaded path: submit all tasks, consume completions on main thread and accumulate there
         with cf.ThreadPoolExecutor(max_workers=max_parallel_tasks) as executor:
             fut2meta = {}
             for task_group, task_id, env in tasks:
                 fut = executor.submit(task_runner, task_group, task_id, env)
-                fut2meta[fut] = (task_group, task_id)
+                fut2meta[fut] = (task_group, task_id, env)
             for fut in cf.as_completed(fut2meta):
-                tg, tid, metrics = fut.result()
-                _accumulate_to(tg, metrics)
-                per_task_infos.append({"task_group": tg, "task_id": tid, "metrics": metrics})
+                tg, tid, env = fut2meta[fut]
+                try:
+                    tg, tid, metrics = fut.result()
+                    _accumulate_to(tg, metrics)
+                    per_task_infos.append({"task_group": tg, "task_id": tid, "metrics": metrics})
+                finally:
+                    env.close()
 
     # compute aggregated metrics helper (robust to lists/scalars)
     def _agg_from_list(xs):
@@ -760,6 +836,7 @@ def eval_policy_all(
 
 def main():
     init_logging()
+    register_third_party_plugins()
     eval_main()
 
 
