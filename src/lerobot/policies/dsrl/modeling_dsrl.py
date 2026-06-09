@@ -368,10 +368,11 @@ class DSRLPolicy(PreTrainedPolicy):
 
         # Sample noise w ~ N(0, I)
         noise = torch.randn(batch_size, action_dim, device=get_device_from_parameters(self))
-        noise = noise.unsqueeze(1).repeat(1, self.chunk_size, 1)
         with torch.no_grad():
             # Generate action using base policy: a = πW_dp(s, w)
-            actions_chunk = self.action_policy.predict_action_chunk(observations, noise=noise)
+            actions_chunk = self.action_policy.predict_action_chunk(
+                observations, noise=noise.unsqueeze(1).repeat(1, self.chunk_size, 1)
+            )
             actions = actions_chunk[:, 0, :]
 
             # Get target Q-values from action critic: QA(s, a)
