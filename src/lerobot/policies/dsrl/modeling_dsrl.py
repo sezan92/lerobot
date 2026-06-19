@@ -366,13 +366,12 @@ class DSRLPolicy(PreTrainedPolicy):
         batch_size = next(iter(observations.values())).shape[0]
         action_dim = self.config.output_features[ACTION].shape[0]
 
-        # Sample noise w ~ N(0, I)
+        # Sample ncoise w ~ N(0, I)
         noise = torch.randn(batch_size, action_dim, device=get_device_from_parameters(self))
+        noise = noise.unsqueeze(1).repeat(1, self.chunk_size, 1)
         with torch.no_grad():
             # Generate action using base policy: a = πW_dp(s, w)
-            actions_chunk = self.action_policy.predict_action_chunk(
-                observations, noise=noise.unsqueeze(1).repeat(1, self.chunk_size, 1)
-            )
+            actions_chunk = self.action_policy.predict_action_chunk(observations, noise=noise)
             actions = actions_chunk[:, 0, :]
 
             # Get target Q-values from action critic: QA(s, a)
@@ -464,10 +463,9 @@ class DSRLPolicy(PreTrainedPolicy):
 
     def _init_action_critics(self):
         """Build critic ensemble, targets."""
-        action_dim = self.config.output_features[ACTION].shape[0]
         heads = [
             CriticHead(
-                input_dim=self.encoder_critic.output_dim + action_dim,
+                input_dim=self.encoder_critic.output_dim,
                 **asdict(self.config.critic_network_kwargs),
             )
             for _ in range(self.config.num_critics)
@@ -475,7 +473,7 @@ class DSRLPolicy(PreTrainedPolicy):
         self.action_critic_ensemble = CriticEnsemble(encoder=self.encoder_critic, ensemble=heads)
         target_heads = [
             CriticHead(
-                input_dim=self.encoder_critic.output_dim + action_dim,
+                input_dim=self.encoder_critic.output_dim,
                 **asdict(self.config.critic_network_kwargs),
             )
             for _ in range(self.config.num_critics)
@@ -495,9 +493,8 @@ class DSRLPolicy(PreTrainedPolicy):
         the action critic ensemble.
 
         """
-        noise_dim = self.config.output_features[ACTION].output_shape[0]
         self.noise_critic = CriticHead(
-            input_dim=self.encoder_critic.output_dim + noise_dim,
+            input_dim=self.encoder_critic.output_dim,
             **asdict(self.config.noise_critic_network_kwargs),
         )
 
@@ -520,7 +517,7 @@ class DSRLPolicy(PreTrainedPolicy):
         self.target_entropy = self.config.target_entropy
         if self.target_entropy is None:
             dim = self.config.output_features[ACTION].shape[0]
-            self.target_entropy = -np.prod(dim) / 2
+            self.target_entropy = -np.prod(dim)
 
     def _init_temperature(self):
         """Set up temperature parameter and initial log_alpha."""
