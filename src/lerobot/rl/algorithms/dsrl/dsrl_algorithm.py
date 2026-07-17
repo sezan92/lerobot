@@ -32,11 +32,22 @@ class DSRLAlgorithm(RLAlgorithm):
         }
 
     def update(self, batch_iterator: Iterator[BatchType]) -> TrainingStats:
-        clip = self.config.grad_clip_norm # sezan: why?
+        clip = self.config.grad_clip_norm  # sezan: why?
         batch = next(batch_iterator)
         fb = self._prepare_forward_batch(batch)
 
         # Phase 1: Actor Critic Update (TD-learning)
         loss_dict = self.policy.forward(fb, model="critic_action")
-        # Update 2026/07/13
-    # TODO: sezan: complete
+        loss_critic = loss_dict["loss_critic"]
+        self.optimizers["critic_action"].zero_grad()
+        loss_critic.backward()
+        critic_grad = torch.nn.utils.clip_grad_norm_(
+            self.policy.action_critic_ensemble.parameters()).item()
+        self.optimizers["critic_action"].step()
+        stats = TrainingStats(
+            losses={"loss_critic": loss_critic.item()},
+            grad_norms={"critic_grad": critic_grad},
+        )
+        # Update 2026/07/17 
+
+    # TODO: sezan: complete and understand what you are doing.
