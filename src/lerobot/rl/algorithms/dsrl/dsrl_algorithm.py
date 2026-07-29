@@ -1,11 +1,15 @@
-import torch
 from collections.abc import Iterator
-from lerobot.policies.dsrl.modeling_dsrl import DSRLPolicy
+
+import torch
 from torch.optim import Optimizer
-from ..base import RLAlgorithm
-from .configuration_dsrl import DSRLAlgorithmConfig
-from ..configs import TrainingStats
+
+from lerobot.policies.dsrl.modeling_dsrl import DSRLPolicy
 from lerobot.types import BatchType
+
+from ..base import RLAlgorithm
+from ..configs import TrainingStats
+from .configuration_dsrl import DSRLAlgorithmConfig
+
 
 class DSRLAlgorithm(RLAlgorithm):
     config_class = DSRLAlgorithmConfig
@@ -52,16 +56,18 @@ class DSRLAlgorithm(RLAlgorithm):
             losses={"loss_critic": loss_critic.item()},
             grad_norms={"critic_grad": critic_grad},
         )
-        # Update 2026/07/17
         loss_dict = self.policy.forward(fb, model="critic_noise")
         loss_noise_critic = loss_dict["loss_critic_noise"]
         self.optimizers["critic_noise"].zero_grad()
         loss_noise_critic.backward()
-        noise_critic_grad = torch.nn.utils.clip_grad_norm_(self.policy.noise_critic.parameters(), max_norm=clip).item()
+        noise_critic_grad = torch.nn.utils.clip_grad_norm_(
+            self.policy.noise_critic.parameters(), max_norm=clip
+        ).item()
         stats.losses["loss_noise_critic"] = loss_noise_critic.item()
         stats.grad_norms["critic_noise"] = noise_critic_grad
 
         if self._optimization_step % self.config.policy_update_freq == 0:
-        # TODO: sezan: complete and understand what you are doing.
+            
             loss_dict = self.policy.forward(fb, model="noise_actor")
             loss_noise_actor = loss_dict["loss_noise_actor"]
+            ## TODO : start from https://github.com/sezan92/RL_study/issues/65#issuecomment-5119276016
