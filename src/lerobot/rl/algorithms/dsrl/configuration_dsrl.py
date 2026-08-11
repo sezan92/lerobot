@@ -7,7 +7,7 @@ from lerobot.configs.policies import PreTrainedConfig
 from ..configs import RLAlgorithmConfig
 
 
-@RLAlgorithmConfig.register_subclass("sac")
+@RLAlgorithmConfig.register_subclass("dsrl")
 @dataclass
 class DSRLAlgorithmConfig(RLAlgorithmConfig):
     """DSRL algorithm configuration."""
@@ -21,5 +21,5 @@ class DSRLAlgorithmConfig(RLAlgorithmConfig):
     policy_config: PreTrainedConfig | None = None
 
     @classmethod
-    def from_policy_config(cls, policy_config: PreTrainedConfig) -> DSRLAlgorithmConfig:
-        return cls(policy_config=policy_config)
+    def from_policy_config(cls, policy_cfg: PreTrainedConfig) -> DSRLAlgorithmConfig:
+        return cls(policy_config=policy_cfg)
