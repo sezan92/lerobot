@@ -1,10 +1,12 @@
 from collections.abc import Iterator
+from typing import Any
 
 import torch
 from torch.optim import Optimizer
 
 from lerobot.policies.dsrl.modeling_dsrl import DSRLPolicy
 from lerobot.types import BatchType
+from lerobot.utils.transition import move_state_dict_to_device
 
 from ..base import RLAlgorithm
 from ..configs import TrainingStats
@@ -67,7 +69,35 @@ class DSRLAlgorithm(RLAlgorithm):
         stats.grad_norms["critic_noise"] = noise_critic_grad
 
         if self._optimization_step % self.config.policy_update_freq == 0:
-            
             loss_dict = self.policy.forward(fb, model="noise_actor")
             loss_noise_actor = loss_dict["loss_noise_actor"]
-            ## TODO : start from https://github.com/sezan92/RL_study/issues/65#issuecomment-5119276016
+            self.optimizers["noise_actor"].zero_grad()
+            loss_noise_actor.backward()
+            noise_actor_grad = torch.nn.utils.clip_grad_norm_(
+                self.policy.noise_actor.parameters(), max_norm=clip
+            ).item()
+            self.optimizers["noise_actor"].step()
+
+            loss_dict = self.policy.forward(fb, model="temperature")
+            loss_temperature = loss_dict["loss_temperature"]
+            self.optimizers["temperature"].zero_grad()
+            loss_temperature.backward()
+            temp_grad = torch.nn.utils.clip_grad_norm_([self.policy.log_alpha], max_norm=clip)
+            self.optimizers["temperature"].step()
+
+            stats.losses["loss_noise_actor"] = loss_noise_actor.item()
+            stats.losses["loss_temperature"] = loss_temperature.item()
+            stats.grad_norms["noise_actor"] = noise_actor_grad
+            stats.grad_norms["temperature"] = temp_grad
+            stats.extra["temperature"] = self.policy.temperature
+
+        self.policy.update_target_networks()
+        self._optimization_step += 1
+
+        return stats
+
+    def get_weights(self) -> dict[str, Any]:
+        """Send noise_actor state dict to actors."""
+        return {"noise_actor": move_state_dict_to_device(self.policy.noise_actor.state_dict(), device="cpu")}
+
+    # TODO: 2026/08/21 start from `Missing load_weights`
