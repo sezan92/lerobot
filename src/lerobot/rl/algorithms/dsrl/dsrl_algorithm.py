@@ -100,4 +100,23 @@ class DSRLAlgorithm(RLAlgorithm):
         """Send noise_actor state dict to actors."""
         return {"noise_actor": move_state_dict_to_device(self.policy.noise_actor.state_dict(), device="cpu")}
 
-    # TODO: 2026/08/21 start from `Missing load_weights`
+    def load_weights(self, weights: dict[str, Any], device: str | torch.device = "cpu") -> None:
+        """Load noise_actor weights from learner."""
+        noise_actor_sd = move_state_dict_to_device(weights["noise_actor"], device)
+        self.policy.noise_actor.load_state_dict(noise_actor_sd)
+
+    def state_dict(self) -> dict[str, torch.Tensor]:
+        """Algorithm-owned trainable tensors (critics, targets)."""
+        bundle: dict[str, torch.Tensor] = {}
+        for k, v in self.policy.action_critic_ensemble.state_dict().items():
+            bundle[f"action_critic_ensemble.{k}"] = v
+        for k, v in self.policy.action_critic_target.state_dict().items():
+            bundle[f"action_critic_target.{k}"] = v
+        for k, v in self.policy.noise_critic.state_dict().items():
+            bundle[f"noise_critic.{k}"] = v
+        return bundle
+
+    def load_state_dict(self, state_dict: dict[str, torch.Tensor], device: str | torch.device = "cpu"):
+        """Load the model from a given state_dict dictionary."""
+        raise NotImplementedError
+        # TODO: 2026/09/07 start from "load_state_dict"
