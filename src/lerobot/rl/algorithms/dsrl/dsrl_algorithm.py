@@ -25,7 +25,7 @@ class DSRLAlgorithm(RLAlgorithm):
         self._optimization_step: int = 0
         self._move_to_device()
 
-    def make_optimizers_and_scheduler(self):
+    def make_optimizers_and_scheduler(self) -> dict[str, Optimizer]:
         cfg = self.config
         self.optimizers = {
             "critic_action": torch.optim.Adam(
@@ -41,6 +41,7 @@ class DSRLAlgorithm(RLAlgorithm):
             ),
             "temperature": torch.optim.Adam([self.policy.log_alpha], lr=cfg.temperature_lr),
         }
+        return self.optimizers
 
     def update(self, batch_iterator: Iterator[BatchType]) -> TrainingStats:
         clip = self.config.grad_clip_norm  # sezan: why?
@@ -132,5 +133,8 @@ class DSRLAlgorithm(RLAlgorithm):
         self.policy.action_critic_ensemble.load_state_dict(action_critic_target_state_dict)
         self.policy.action_critic_target.load_state_dict(action_critic_target_state_dict)
         self.policy.noise_critic.load_state_dict(noise_critic_state_dict)
+
+        def get_optimizers(self) -> dict[str, Optimizer]:
+            return self.optimizers
 
         # TODO: 2026/09/10 start from "get_optimizers" method
