@@ -124,13 +124,13 @@ class DSRLAlgorithm(RLAlgorithm):
         noise_critic_state_dict: dict[str, torch.Tensor] = {}
 
         for k, v in state_dict.items():
-            if "action_critic_ensemble" in k:
+            if k.startswith("action_critic_ensemble"):
                 action_critic_ensemble_state_dict[k] = v
-            if "action_critic_target" in k:
+            if k.startswith("action_critic_target"):
                 action_critic_target_state_dict[k] = v
-            if "noise_critic" in k:
+            if k.startswith("noise_critic")ß:
                 noise_critic_state_dict[k] = v
-        self.policy.action_critic_ensemble.load_state_dict(action_critic_target_state_dict)
+        self.policy.action_critic_ensemble.load_state_dict(action_critic_ensemble_state_dict)
         self.policy.action_critic_target.load_state_dict(action_critic_target_state_dict)
         self.policy.noise_critic.load_state_dict(noise_critic_state_dict)
 
