@@ -117,7 +117,9 @@ class DSRLAlgorithm(RLAlgorithm):
             bundle[f"noise_critic.{k}"] = v
         return bundle
 
-    def load_state_dict(self, state_dict: dict[str, torch.Tensor], device: str | torch.device = "cpu"):
+    def load_state_dict(
+        self, state_dict: dict[str, torch.Tensor], device: str | torch.device = "cpu"
+    ) -> None:
         """Load the model from a given state_dict dictionary."""
         action_critic_ensemble_state_dict: dict[str, torch.Tensor] = {}
         action_critic_target_state_dict: dict[str, torch.Tensor] = {}
@@ -126,15 +128,13 @@ class DSRLAlgorithm(RLAlgorithm):
         for k, v in state_dict.items():
             if k.startswith("action_critic_ensemble"):
                 action_critic_ensemble_state_dict[k] = v
-            if k.startswith("action_critic_target"):
+            elif k.startswith("action_critic_target"):
                 action_critic_target_state_dict[k] = v
-            if k.startswith("noise_critic")ß:
+            elif k.startswith("noise_critic"):
                 noise_critic_state_dict[k] = v
         self.policy.action_critic_ensemble.load_state_dict(action_critic_ensemble_state_dict)
         self.policy.action_critic_target.load_state_dict(action_critic_target_state_dict)
         self.policy.noise_critic.load_state_dict(noise_critic_state_dict)
 
-        def get_optimizers(self) -> dict[str, Optimizer]:
-            return self.optimizers
-
-        # TODO: 2026/09/10 start from "get_optimizers" method
+    def get_optimizers(self) -> dict[str, Optimizer]:
+        return self.optimizers
