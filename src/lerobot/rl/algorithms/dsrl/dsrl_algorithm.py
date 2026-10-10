@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import torch
+from torch import nn
 from torch.optim import Optimizer
 
 from lerobot.policies.dsrl.modeling_dsrl import DSRLPolicy
@@ -21,7 +22,7 @@ class DSRLAlgorithm(RLAlgorithm):
         self.config = config
         self.policy_config = config.policy_config
         self.policy = policy
-        self.optimizers = dict[str, Optimizer] = {}
+        self.optimizers: dict[str, Optimizer] = {}
         self._optimization_step: int = 0
         self._move_to_device()
 
@@ -39,12 +40,12 @@ class DSRLAlgorithm(RLAlgorithm):
                 self.policy.noise_actor.parameters(),
                 lr=cfg.critc_lr,
             ),
-            "temperature": torch.optim.Adam([self.policy.log_alpha], lr=cfg.temperature_lr),
+            "temperature": torch.optim.Adam([self.policy.log_alpha], lr=cfg.critic_lr),
         }
         return self.optimizers
 
     def update(self, batch_iterator: Iterator[BatchType]) -> TrainingStats:
-        clip = self.config.grad_clip_norm  # sezan: why?
+        clip = self.config.grad_clip_norm
         batch = next(batch_iterator)
         fb = self._prepare_forward_batch(batch)
 
@@ -53,7 +54,9 @@ class DSRLAlgorithm(RLAlgorithm):
         loss_critic = loss_dict["loss_critic"]
         self.optimizers["critic_action"].zero_grad()
         loss_critic.backward()
-        critic_grad = torch.nn.utils.clip_grad_norm_(self.policy.action_critic_ensemble.parameters()).item()
+        critic_grad = torch.nn.utils.clip_grad_norm_(
+            self.policy.action_critic_ensemble.parameters(), max_norm=clip
+        ).item()
         self.optimizers["critic_action"].step()
         stats = TrainingStats(
             losses={"loss_critic": loss_critic.item()},
@@ -138,3 +141,6 @@ class DSRLAlgorithm(RLAlgorithm):
 
     def get_optimizers(self) -> dict[str, Optimizer]:
         return self.optimizers
+
+    def _move_to_device(self) -> None:
+        self.policy.to(self._device)
