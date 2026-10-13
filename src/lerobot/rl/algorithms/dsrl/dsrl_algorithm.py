@@ -2,7 +2,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import torch
-from torch import nn
 from torch.optim import Optimizer
 
 from lerobot.policies.dsrl.modeling_dsrl import DSRLPolicy
