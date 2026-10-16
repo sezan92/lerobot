@@ -63,6 +63,9 @@ def get_algorithm_class(name: str) -> type[RLAlgorithm]:
         from .sac.sac_algorithm import SACAlgorithm
 
         return SACAlgorithm
+    if name == "dsrl":
+        from .dsrl.dsrl_algorithm import DSRLAlgorithm
+        return DSRLAlgorithm
     raise ValueError(
         f"Algorithm type '{name}' is not available. "
         f"Known: {list(RLAlgorithmConfig.get_known_choices().keys())}"
