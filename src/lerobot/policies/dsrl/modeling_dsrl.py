@@ -465,7 +465,8 @@ class DSRLPolicy(PreTrainedPolicy):
         """Build critic ensemble, targets."""
         heads = [
             CriticHead(
-                input_dim=self.encoder_critic.output_dim,
+                input_dim=self.encoder_critic.output_dim + 
+                self.action_dim,
                 **asdict(self.config.critic_network_kwargs),
             )
             for _ in range(self.config.num_critics)
@@ -473,7 +474,8 @@ class DSRLPolicy(PreTrainedPolicy):
         self.action_critic_ensemble = CriticEnsemble(encoder=self.encoder_critic, ensemble=heads)
         target_heads = [
             CriticHead(
-                input_dim=self.encoder_critic.output_dim,
+                input_dim=self.encoder_critic.output_dim +
+                self.action_dim,
                 **asdict(self.config.critic_network_kwargs),
             )
             for _ in range(self.config.num_critics)
@@ -494,7 +496,7 @@ class DSRLPolicy(PreTrainedPolicy):
 
         """
         self.noise_critic = CriticHead(
-            input_dim=self.encoder_critic.output_dim,
+            input_dim=self.encoder_critic.output_dim + self.config.noise_dim,
             **asdict(self.config.noise_critic_network_kwargs),
         )
 
