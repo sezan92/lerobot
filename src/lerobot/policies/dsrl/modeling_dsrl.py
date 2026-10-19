@@ -366,12 +366,12 @@ class DSRLPolicy(PreTrainedPolicy):
         batch_size = next(iter(observations.values())).shape[0]
         action_dim = self.config.output_features[ACTION].shape[0]
 
-        # Sample ncoise w ~ N(0, I)
-        noise = torch.randn(batch_size, action_dim, device=get_device_from_parameters(self))
-        noise = noise.unsqueeze(1).repeat(1, self.chunk_size, 1)
+        # Sample noise w ~ N(0, I)
+        noise_2d = torch.randn(batch_size, action_dim, device=get_device_from_parameters(self))
+        noise_3d = noise_2d.unsqueeze(1).repeat(1, self.chunk_size, 1)
         with torch.no_grad():
             # Generate action using base policy: a = πW_dp(s, w)
-            actions_chunk = self.action_policy.predict_action_chunk(observations, noise=noise)
+            actions_chunk = self.action_policy.predict_action_chunk(observations, noise=noise_3d)
             actions = actions_chunk[:, 0, :]
 
             # Get target Q-values from action critic: QA(s, a)
@@ -387,7 +387,7 @@ class DSRLPolicy(PreTrainedPolicy):
         # Get predicted Q-values from noise critic: QW(s, w)
         q_preds = self.noise_critic_forward(
             observations=observations,
-            noise=noise,
+            noise=noise_2d,
             observation_features=observation_features,
         )  # (batch_size, 1)
 
@@ -465,8 +465,7 @@ class DSRLPolicy(PreTrainedPolicy):
         """Build critic ensemble, targets."""
         heads = [
             CriticHead(
-                input_dim=self.encoder_critic.output_dim + 
-                self.action_dim,
+                input_dim=self.encoder_critic.output_dim + self.action_dim,
                 **asdict(self.config.critic_network_kwargs),
             )
             for _ in range(self.config.num_critics)
@@ -474,8 +473,7 @@ class DSRLPolicy(PreTrainedPolicy):
         self.action_critic_ensemble = CriticEnsemble(encoder=self.encoder_critic, ensemble=heads)
         target_heads = [
             CriticHead(
-                input_dim=self.encoder_critic.output_dim +
-                self.action_dim,
+                input_dim=self.encoder_critic.output_dim + self.action_dim,
                 **asdict(self.config.critic_network_kwargs),
             )
             for _ in range(self.config.num_critics)
