@@ -17,12 +17,13 @@ class DSRLAlgorithm(RLAlgorithm):
     config_class = DSRLAlgorithmConfig
     name = "dsrl"
 
-    def __init__(self, policy: DSRLPolicy, config: DSRLAlgorithmConfig):
+    def __init__(self, policy: DSRLPolicy, config: DSRLAlgorithmConfig, device: str = "cpu"):
         self.config = config
         self.policy_config = config.policy_config
         self.policy = policy
         self.optimizers: dict[str, Optimizer] = {}
         self._optimization_step: int = 0
+        self._device = device
         self._move_to_device()
 
     def make_optimizers_and_scheduler(self) -> dict[str, Optimizer]:
