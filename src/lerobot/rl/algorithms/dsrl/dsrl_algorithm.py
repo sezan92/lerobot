@@ -38,7 +38,7 @@ class DSRLAlgorithm(RLAlgorithm):
             ),
             "noise_actor": torch.optim.Adam(
                 self.policy.noise_actor.parameters(),
-                lr=cfg.critc_lr,
+                lr=cfg.critic_lr,
             ),
             "temperature": torch.optim.Adam([self.policy.log_alpha], lr=cfg.critic_lr),
         }
@@ -69,6 +69,7 @@ class DSRLAlgorithm(RLAlgorithm):
         noise_critic_grad = torch.nn.utils.clip_grad_norm_(
             self.policy.noise_critic.parameters(), max_norm=clip
         ).item()
+        self.optimizers["critic_noise"].step()
         stats.losses["loss_noise_critic"] = loss_noise_critic.item()
         stats.grad_norms["critic_noise"] = noise_critic_grad
 
