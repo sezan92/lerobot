@@ -47,7 +47,7 @@ class DSRLAlgorithm(RLAlgorithm):
     def update(self, batch_iterator: Iterator[BatchType]) -> TrainingStats:
         clip = self.config.grad_clip_norm
         batch = next(batch_iterator)
-        fb = self._prepare_forward_batch(batch)
+        fb = self._prepare_forward_batch(batch) # Sezan, what it is doing?
 
         # Phase 1: Actor Critic Update (TD-learning)
         loss_dict = self.policy.forward(fb, model="critic_action")
@@ -145,3 +145,17 @@ class DSRLAlgorithm(RLAlgorithm):
 
     def _move_to_device(self) -> None:
         self.policy.to(self._device)
+    def _prepare_forward_batch(self, batch: BatchType):
+        # This  method takes batch of states and next 
+        # states and return the features
+        # it also caches the featuers for some other time
+        # TODO : complete this function
+        # TODO : complete another function get observation
+        # features to cache the features based on certain
+        # states
+        # use the following suggestion from cline.
+        observations = batch["state"]
+        next_observations = batch["next_state"]
+        
+        raise NotImplementedError
+
